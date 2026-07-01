@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>電馭蛇 // NEON SERPENT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-void:#07030f;
+    --bg-panel:#0d0620;
+    --grid-line:#1a0f38;
+    --neon-cyan:#00f6ff;
+    --neon-magenta:#ff2bd6;
+    --neon-yellow:#f4ff2b;
+    --neon-purple:#7b2ff7;
+    --neon-red:#ff2b4d;
+    --text-dim:#8f8ab8;
+  }
+
+  *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:
+      radial-gradient(ellipse at 20% 0%, #1a0a3a 0%, transparent 55%),
+      radial-gradient(ellipse at 85% 100%, #06182e 0%, transparent 55%),
+      var(--bg-void);
+    color:var(--text-dim);
+    font-family:'Share Tech Mono', monospace;
+    overflow:hidden;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+
+  /* scanline + vignette overlay */
+  .crt{
+    position:fixed; inset:0; pointer-events:none; z-index:50;
+    background: repeating-linear-gradient(
+      0deg, rgba(0,0,0,0.18) 0px, rgba(0,0,0,0.18) 1px,
+      transparent 2px, transparent 3px
+    );
+    mix-blend-mode:overlay;
+  }
+  .vignette{
+    position:fixed; inset:0; pointer-events:none; z-index:51;
+    box-shadow: inset 0 0 18vw 4vw rgba(0,0,0,0.75);
+  }
+
+  .stage{
+    position:relative;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:14px;
+    padding:18px 22px 22px;
+    z-index:1;
+    width:min(92vw, 560px);
+  }
+
+  /* ---- Title ---- */
+  .title-wrap{
+    text-align:center;
+    user-select:none;
+  }
+  .eyebrow{
+    font-size:10px;
+    letter-spacing:0.45em;
+    color:var(--neon-cyan);
+    opacity:0.75;
+    margin-bottom:4px;
+  }
+  h1{
+    font-family:'Orbitron', sans-serif;
+    font-weight:900;
+    font-size:clamp(26px, 6vw, 40px);
+    margin:0;
+    letter-spacing:0.06em;
+    color:#fff;
+    position:relative;
+    text-shadow:
+      0 0 6px var(--neon-cyan),
+      0 0 18px var(--neon-cyan),
+      0 0 40px rgba(0,246,255,0.5);
+    animation: flicker 6s infinite;
+  }
+  h1 .accent{ color:var(--neon-magenta); text-shadow:0 0 6px var(--neon-magenta),0 0 18px var(--neon-magenta),0 0 40px rgba(255,43,214,0.5); }
+
+  @keyframes flicker{
+    0%,3%,6%,100%{ opacity:1; }
+    4%{ opacity:0.7; }
+    5%{ opacity:0.95; }
+    45%{ opacity:1; }
+    46%{ opacity:0.55; }
+    47%{ opacity:1; }
+  }
+
+  /* ---- HUD ---- */
+  .hud{
+    width:100%;
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    font-family:'Orbitron', sans-serif;
+    padding:0 2px;
+  }
+  .hud-block{ display:flex; flex-direction:column; gap:2px; }
+  .hud-label{ font-size:9px; letter-spacing:0.3em; color:var(--text-dim); }
+  .hud-value{
+    font-size:20px; font-weight:700; color:var(--neon-yellow);
+    text-shadow:0 0 8px rgba(244,255,43,0.7);
+    min-width:3ch;
+  }
+  .hud-value.hi{ color:var(--neon-magenta); text-shadow:0 0 8px rgba(255,43,214,0.7); }
+
+  /* ---- Game frame ---- */
+  .frame{
+    position:relative;
+    padding:3px;
+    border-radius:4px;
+    background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple), var(--neon-magenta));
+    box-shadow:
+      0 0 20px rgba(123,47,247,0.55),
+      0 0 60px rgba(0,246,255,0.15);
+  }
+  canvas{
+    display:block;
+    width:100%;
+    aspect-ratio:1/1;
+    background:
+      repeating-linear-gradient(0deg, transparent, transparent 24px, rgba(255,255,255,0.02) 25px),
+      var(--bg-panel);
+    border-radius:2px;
+    image-rendering: pixelated;
+  }
+
+  /* ---- Overlay (start / game over) ---- */
+  .overlay{
+    position:absolute; inset:3px;
+    background:rgba(4,1,12,0.88);
+    border-radius:2px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:14px;
+    text-align:center;
+    padding:20px;
+    backdrop-filter: blur(1px);
+    transition:opacity 0.25s ease;
+  }
+  .overlay.hidden{ opacity:0; pointer-events:none; }
+  .overlay h2{
+    font-family:'Orbitron',sans-serif;
+    color:#fff;
+    font-size:clamp(18px,4.5vw,26px);
+    margin:0;
+    letter-spacing:0.08em;
+    text-shadow:0 0 10px var(--neon-red), 0 0 30px rgba(255,43,77,0.6);
+  }
+  .overlay p{ margin:0; font-size:12px; letter-spacing:0.08em; line-height:1.7; color:var(--text-dim); }
+  .overlay .kbd{ color:var(--neon-cyan); }
+
+  .btn{
+    font-family:'Orbitron', sans-serif;
+    font-size:12px;
+    letter-spacing:0.15em;
+    padding:12px 28px;
+    background:transparent;
+    color:var(--neon-cyan);
+    border:1px solid var(--neon-cyan);
+    border-radius:2px;
+    cursor:pointer;
+    text-transform:uppercase;
+    box-shadow:0 0 12px rgba(0,246,255,0.4), inset 0 0 12px rgba(0,246,255,0.08);
+    transition: all 0.15s ease;
+  }
+  .btn:hover{ background:rgba(0,246,255,0.12); box-shadow:0 0 20px rgba(0,246,255,0.7), inset 0 0 16px rgba(0,246,255,0.2); }
+  .btn:active{ transform:scale(0.96); }
+
+  /* ---- Touch controls ---- */
+  .touch-pad{
+    display:none;
+    grid-template-columns:repeat(3, 56px);
+    grid-template-rows:repeat(3, 56px);
+    gap:6px;
+    justify-content:center;
+    margin-top:4px;
+  }
+  .touch-pad button{
+    background:rgba(123,47,247,0.08);
+    border:1px solid var(--neon-purple);
+    color:var(--neon-purple);
+    border-radius:6px;
+    font-size:18px;
+    box-shadow:0 0 8px rgba(123,47,247,0.35);
+  }
+  .touch-pad button:active{ background:rgba(123,47,247,0.3); }
+  #tp-up{ grid-column:2; grid-row:1; }
+  #tp-left{ grid-column:1; grid-row:2; }
+  #tp-right{ grid-column:3; grid-row:2; }
+  #tp-down{ grid-column:2; grid-row:3; }
+
+  @media (hover:none) and (pointer:coarse){
+    .touch-pad{ display:grid; }
+  }
+
+  .footer-tip{
+    font-size:10px;
+    letter-spacing:0.15em;
+    color:var(--text-dim);
+    opacity:0.6;
+    text-align:center;
+  }
+</style>
+</head>
+<body>
+
+<div class="crt"></div>
+<div class="vignette"></div>
+
+<div class="stage">
+  <div class="title-wrap">
+    <div class="eyebrow">NIGHT CITY // SUBNET-9</div>
+    <h1>電馭<span class="accent">蛇</span> NEON SERPENT</h1>
+  </div>
+
+  <div class="hud">
+    <div class="hud-block">
+      <span class="hud-label">DATA 資料</span>
+      <span class="hud-value" id="score">000</span>
+    </div>
+    <div class="hud-block" style="align-items:flex-end;">
+      <span class="hud-label">MAX 紀錄</span>
+      <span class="hud-value hi" id="highscore">000</span>
+    </div>
+  </div>
+
+  <div class="frame">
+    <canvas id="game" width="440" height="440"></canvas>
+
+    <div class="overlay" id="overlay">
+      <h2 id="overlay-title">系統待機 // STANDBY</h2>
+      <p>用 <span class="kbd">方向鍵</span> 或 <span class="kbd">WASD</span> 潛入資料流<br>吃取節點以增長程式鏈<br>切勿撞牆，切勿自噬</p>
+      <button class="btn" id="start-btn">啟動 START</button>
+    </div>
+  </div>
+
+  <div class="touch-pad" id="touch-pad">
+    <button id="tp-up">▲</button>
+    <button id="tp-left">◀</button>
+    <button id="tp-right">▶</button>
+    <button id="tp-down">▼</button>
+  </div>
+
+  <div class="footer-tip">SPACE 暫停 / 重新啟動請按 START</div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const COLS = 22, ROWS = 22;
+  let CELL = canvas.width / COLS;
+
+  const scoreEl = document.getElementById('score');
+  const highEl = document.getElementById('highscore');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlay-title');
+  const startBtn = document.getElementById('start-btn');
+
+  const COLOR_HEAD = '#00f6ff';
+  const COLOR_BODY_A = '#7b2ff7';
+  const COLOR_BODY_B = '#ff2bd6';
+  const COLOR_FOOD = '#f4ff2b';
+  const COLOR_GRID = 'rgba(123,47,247,0.08)';
+
+  let snake, dir, nextDir, food, score, high, running, paused, tickMs, loopHandle, particles;
+
+  high = parseInt(localStorage.getItem('neonSerpentHigh') || '0', 10);
+  highEl.textContent = String(high).padStart(3,'0');
+
+  function resetState(){
+    const midX = Math.floor(COLS/2), midY = Math.floor(ROWS/2);
+    snake = [
+      {x:midX-1,y:midY},
+      {x:midX-2,y:midY},
+      {x:midX-3,y:midY}
+    ];
+    dir = {x:1,y:0};
+    nextDir = {x:1,y:0};
+    score = 0;
+    tickMs = 130;
+    particles = [];
+    placeFood();
+    scoreEl.textContent = '000';
+  }
+
+  function placeFood(){
+    let valid = false;
+    while(!valid){
+      const fx = Math.floor(Math.random()*COLS);
+      const fy = Math.floor(Math.random()*ROWS);
+      if(!snake.some(s=>s.x===fx && s.y===fy)){
+        food = {x:fx, y:fy};
+        valid = true;
+      }
+    }
+  }
+
+  function drawGrid(){
+    ctx.strokeStyle = COLOR_GRID;
+    ctx.lineWidth = 1;
+    for(let i=0;i<=COLS;i++){
+      ctx.beginPath();
+      ctx.moveTo(i*CELL,0); ctx.lineTo(i*CELL, canvas.height);
+      ctx.stroke();
+    }
+    for(let j=0;j<=ROWS;j++){
+      ctx.beginPath();
+      ctx.moveTo(0,j*CELL); ctx.lineTo(canvas.width, j*CELL);
+      ctx.stroke();
+    }
+  }
+
+  function roundRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  function drawFood(t){
+    const pulse = 0.5 + 0.5*Math.sin(t/180);
+    const cx = food.x*CELL + CELL/2;
+    const cy = food.y*CELL + CELL/2;
+    const size = CELL*0.6 + pulse*2;
+
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(t/900);
+    ctx.shadowColor = COLOR_FOOD;
+    ctx.shadowBlur = 14 + pulse*10;
+    ctx.strokeStyle = COLOR_FOOD;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-size/2,-size/2,size,size);
+    ctx.fillStyle = 'rgba(244,255,43,0.15)';
+    ctx.fillRect(-size/2,-size/2,size,size);
+    ctx.restore();
+  }
+
+  function drawSnake(){
+    for(let i=snake.length-1;i>=0;i--){
+      const seg = snake[i];
+      const isHead = i===0;
+      const x = seg.x*CELL, y = seg.y*CELL;
+      const pad = isHead ? 1 : 2;
+
+      let color;
+      if(isHead){ color = COLOR_HEAD; }
+      else {
+        const tRatio = i/snake.length;
+        color = tRatio < 0.5 ? COLOR_BODY_A : COLOR_BODY_B;
+      }
+
+      ctx.save();
+      ctx.shadowColor = color;
+      ctx.shadowBlur = isHead ? 16 : 8;
+      ctx.fillStyle = isHead ? '#ffffff' : color;
+      ctx.globalAlpha = isHead ? 1 : 0.55 + 0.4*(1-i/snake.length);
+      roundRect(x+pad, y+pad, CELL-pad*2, CELL-pad*2, isHead?4:3);
+      ctx.fill();
+      ctx.restore();
+
+      if(isHead){
+        // eyes indicating direction
+        ctx.save();
+        ctx.fillStyle = '#0a0014';
+        const ex = x + CELL/2 + dir.x*CELL*0.15;
+        const ey = y + CELL/2 + dir.y*CELL*0.15;
+        const ox = dir.y!==0 ? CELL*0.18 : 0;
+        const oy = dir.x!==0 ? CELL*0.18 : 0;
+        ctx.beginPath();
+        ctx.arc(ex-ox, ey-oy, CELL*0.08, 0, Math.PI*2);
+        ctx.arc(ex+ox, ey+oy, CELL*0.08, 0, Math.PI*2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  function spawnParticles(x,y,color){
+    for(let i=0;i<10;i++){
+      particles.push({
+        x: x*CELL+CELL/2, y: y*CELL+CELL/2,
+        vx:(Math.random()-0.5)*4, vy:(Math.random()-0.5)*4,
+        life:1, color
+      });
+    }
+  }
+
+  function drawParticles(){
+    particles.forEach(p=>{
+      ctx.save();
+      ctx.globalAlpha = Math.max(p.life,0);
+      ctx.fillStyle = p.color;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 8;
+      ctx.fillRect(p.x-2,p.y-2,4,4);
+      ctx.restore();
+      p.x += p.vx; p.y += p.vy; p.life -= 0.04;
+    });
+    particles = particles.filter(p=>p.life>0);
+  }
+
+  function step(){
+    dir = nextDir;
+    const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+    // wall collision
+    if(head.x<0 || head.x>=COLS || head.y<0 || head.y>=ROWS){
+      return gameOver();
+    }
+    // self collision
+    if(snake.some(s=>s.x===head.x && s.y===head.y)){
+      return gameOver();
+    }
+
+    snake.unshift(head);
+
+    if(head.x===food.x && head.y===food.y){
+      score++;
+      scoreEl.textContent = String(score).padStart(3,'0');
+      spawnParticles(food.x, food.y, COLOR_FOOD);
+      placeFood();
+      if(tickMs>70) tickMs -= 3;
+    } else {
+      snake.pop();
+    }
+  }
+
+  let lastTime = 0, acc = 0;
+  function loop(t){
+    if(!running || paused){ loopHandle = requestAnimationFrame(loop); lastTime = t; return; }
+    const dt = t - lastTime;
+    lastTime = t;
+    acc += dt;
+
+    if(acc >= tickMs){
+      acc = 0;
+      step();
+    }
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawGrid();
+    if(running){
+      drawFood(t);
+      drawSnake();
+      drawParticles();
+    }
+    loopHandle = requestAnimationFrame(loop);
+  }
+
+  function gameOver(){
+    running = false;
+    if(score > high){
+      high = score;
+      localStorage.setItem('neonSerpentHigh', String(high));
+      highEl.textContent = String(high).padStart(3,'0');
+    }
+    overlayTitle.textContent = '連結中斷 // CONNECTION LOST';
+    document.querySelector('.overlay p').innerHTML =
+      `擷取資料節點: <span class="kbd">${score}</span><br>系統紀錄已更新<br>準備重新潛入？`;
+    startBtn.textContent = '重新啟動 RETRY';
+    overlay.classList.remove('hidden');
+  }
+
+  function startGame(){
+    resetState();
+    running = true;
+    paused = false;
+    overlay.classList.add('hidden');
+  }
+
+  function setDir(nx, ny){
+    if(!running) return;
+    // prevent reversing into self
+    if(snake.length>1 && dir.x===-nx && dir.y===-ny) return;
+    if(nx===dir.x && ny===dir.y && false) return;
+    nextDir = {x:nx, y:ny};
+  }
+
+  window.addEventListener('keydown', (e)=>{
+    switch(e.key){
+      case 'ArrowUp': case 'w': case 'W': setDir(0,-1); e.preventDefault(); break;
+      case 'ArrowDown': case 's': case 'S': setDir(0,1); e.preventDefault(); break;
+      case 'ArrowLeft': case 'a': case 'A': setDir(-1,0); e.preventDefault(); break;
+      case 'ArrowRight': case 'd': case 'D': setDir(1,0); e.preventDefault(); break;
+      case ' ':
+        if(running){ paused = !paused; }
+        e.preventDefault();
+        break;
+    }
+  }, {passive:false});
+
+  document.getElementById('tp-up').addEventListener('click', ()=>setDir(0,-1));
+  document.getElementById('tp-down').addEventListener('click', ()=>setDir(0,1));
+  document.getElementById('tp-left').addEventListener('click', ()=>setDir(-1,0));
+  document.getElementById('tp-right').addEventListener('click', ()=>setDir(1,0));
+
+  startBtn.addEventListener('click', startGame);
+
+  // swipe support
+  let touchStartX=0, touchStartY=0;
+  canvas.addEventListener('touchstart', (e)=>{
+    const t = e.touches[0];
+    touchStartX = t.clientX; touchStartY = t.clientY;
+  }, {passive:true});
+  canvas.addEventListener('touchend', (e)=>{
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartX;
+    const dy = t.clientY - touchStartY;
+    if(Math.abs(dx) > Math.abs(dy)){
+      if(Math.abs(dx) > 20) setDir(dx>0?1:-1, 0);
+    } else {
+      if(Math.abs(dy) > 20) setDir(0, dy>0?1:-1);
+    }
+  }, {passive:true});
+
+  // initial render (idle grid)
+  running = false;
+  resetState();
+  requestAnimationFrame(loop);
+})();
+</script>
+
+</body>
+</html>
